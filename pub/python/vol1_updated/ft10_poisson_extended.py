@@ -142,9 +142,14 @@ def solver_linalg(kappa, f, u_D, Nx, Ny,
     # Assemble linear system
     A = assemble(a)
     b = assemble(L)
+    A, b = assemble_system(a, L, bc)
 
     # Apply boundary conditions
     bc.apply(A, b)
+    # make and apply point source
+    point=Point(0.5, 0.5)
+    ps = PointSource(V, point, 1.0)
+    ps.apply(b)
 
     # Create linear solver and set parameters
     if linear_solver == 'Krylov':
@@ -152,6 +157,9 @@ def solver_linalg(kappa, f, u_D, Nx, Ny,
         solver.parameters.absolute_tolerance = abs_tol
         solver.parameters.relative_tolerance = rel_tol
         solver.parameters.maximum_iterations = max_iter
+        solver.parameters['absolute_tolerance'] = abs_tol
+        solver.parameters['relative_tolerance'] = rel_tol
+        solver.parameters['maximum_iterations'] = max_iter
     else:
         solver = LUSolver()
 
@@ -476,13 +484,13 @@ def test_normalize_solution():
 
 def demo_test():
     "Solve test problem and plot solution"
-    u_D = Expression('1 + x[0]*x[0] + 2*x[1]*x[1]', degree=2)
-    kappa = Expression('x[0] + x[1]', degree=1)
-    f = Expression('-8*x[0] - 10*x[1]', degree=1)
-    u = solver(kappa, f, u_D, 8, 8, 1)
-    vtkfile = File('poisson_extended/solution_test.pvd')
-    vtkfile << u
-    plot(u)
+    u_D = Constant(0.0)
+    kappa = Constant(1.0)
+    f = Constant(0.0)
+    u = solver_linalg(kappa, f, u_D, 8, 8, 1)
+    # vtkfile = File('poisson_extended/solution_test.pvd')
+    # vtkfile << u
+    plot(u, mode='warp')
 
 def demo_flux(Nx=8, Ny=8):
     "Solve test problem and compute flux"
