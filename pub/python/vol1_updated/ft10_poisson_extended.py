@@ -115,7 +115,7 @@ def solver_objects(kappa, f, u_D, Nx, Ny,
 
     return u
 
-def solver_linalg(kappa, f, u_D, Nx, Ny,
+def solver_linalg(kappa, f, u_D, mesh,
                  degree=1,
                  linear_solver='Krylov',
                  abs_tol=1E-5,
@@ -124,14 +124,10 @@ def solver_linalg(kappa, f, u_D, Nx, Ny,
     "Same as the solver() function but assembling and solving Ax = b"
 
     # Create mesh and define function space
-    mesh = UnitSquareMesh(Nx, Ny)
     V = FunctionSpace(mesh, 'P', degree)
 
     # Define boundary condition
-    def boundary(x, on_boundary):
-        return on_boundary
-
-    bc = DirichletBC(V, u_D, boundary)
+    bc = DirichletBC(V, u_D, 'on_boundary')
 
     # Define variational problem
     u = TrialFunction(V)
@@ -140,23 +136,19 @@ def solver_linalg(kappa, f, u_D, Nx, Ny,
     L = f*v*dx
 
     # Assemble linear system
-    A = assemble(a)
-    b = assemble(L)
     A, b = assemble_system(a, L, bc)
 
     # Apply boundary conditions
     bc.apply(A, b)
+
     # make and apply point source
-    point=Point(0.5, 0.5)
+    point=Point()
     ps = PointSource(V, point, 1.0)
     ps.apply(b)
 
     # Create linear solver and set parameters
     if linear_solver == 'Krylov':
         solver = KrylovSolver('gmres', 'ilu')
-        solver.parameters.absolute_tolerance = abs_tol
-        solver.parameters.relative_tolerance = rel_tol
-        solver.parameters.maximum_iterations = max_iter
         solver.parameters['absolute_tolerance'] = abs_tol
         solver.parameters['relative_tolerance'] = rel_tol
         solver.parameters['maximum_iterations'] = max_iter
@@ -484,13 +476,49 @@ def test_normalize_solution():
 
 def demo_test():
     "Solve test problem and plot solution"
-    u_D = Constant(0.0)
+
+    p = (0,0,0)
+    u_D = Expression('''1/(4 * pi * sqrt(
+      pow(x[0]-pt_x, 2)+
+      pow(x[1]-pt_y, 2)+
+      pow(x[2]-pt_z, 2)))''', degree=2,pt_x=p[0],pt_y=p[1],pt_z=p[2])
+
     kappa = Constant(1.0)
     f = Constant(0.0)
-    u = solver_linalg(kappa, f, u_D, 8, 8, 1)
-    # vtkfile = File('poisson_extended/solution_test.pvd')
-    # vtkfile << u
-    plot(u, mode='warp')
+
+    def gen_ref_mesh(p = Point(), a = 1.0, R = 5.0):
+
+        # Refine mesh close to x = (0.5, 0.5)
+        # p = Point(0.5, 0.5)
+        
+        # R = 5.0  # radius of domain
+        # a = 1.0   # inner radius
+
+
+        # Create mesh
+        from mshr import Sphere, generate_mesh
+        domain = Sphere(p, R)
+        mesh = generate_mesh(domain, 8 * 2)
+
+        # https://bitbucket.org/fenics-project/dolfin/src/master/python/demo/undocumented/refinement/demo_refinement.py#lines-53
+
+        # Mark cells for refinement
+        cell_markers = MeshFunction("bool", mesh, mesh.topology().dim())
+        for c in cells(mesh):
+            if c.midpoint().distance(p) < a:
+                cell_markers[c] = True
+            else:
+                cell_markers[c] = False
+
+        # Refine mesh
+        mesh = refine(mesh, cell_markers)
+        return mesh
+
+    # mesh = gen_ref_mesh()
+    u = solver_linalg(kappa, f, u_D, gen_ref_mesh(), 1)
+    vtkfile = File('poisson_extended/solution_test.pvd')
+    vtkfile << u
+    plot(u)
 
 def demo_flux(Nx=8, Ny=8):
     "Solve test problem and compute flux"
@@ -769,5 +797,5 @@ if __name__ == '__main__':
     demos[nr]()
 
     # Hold plot
-    import matplotlib.pyplot as plt
-    plt.savefig("figure.png")
+    # import matplotlib.pyplot as plt
+    # plt.savefig("figure.png")
