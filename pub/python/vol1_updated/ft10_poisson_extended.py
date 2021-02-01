@@ -499,11 +499,12 @@ def demo_test():
         from mshr import Sphere, generate_mesh
         domain = Sphere(p, R)
         mesh = generate_mesh(domain, 8 * 2)
+        # domain.set_subdomain(1, Sphere(p, a))
 
         # https://bitbucket.org/fenics-project/dolfin/src/master/python/demo/undocumented/refinement/demo_refinement.py#lines-53
 
         # Mark cells for refinement
-        cell_markers = MeshFunction("bool", mesh, mesh.topology().dim())
+        cell_markers = MeshFunction("bool", mesh, mesh.topology().dim(),False)
         for c in cells(mesh):
             if c.midpoint().distance(p) < a:
                 cell_markers[c] = True
@@ -512,6 +513,8 @@ def demo_test():
 
         # Refine mesh
         mesh = refine(mesh, cell_markers)
+        # mesh = refine(mesh, cell_markers)
+        # mesh = refine(mesh, cell_markers)
         return mesh
 
     # mesh = gen_ref_mesh()
@@ -519,6 +522,23 @@ def demo_test():
     vtkfile = File('poisson_extended/solution_test.pvd')
     vtkfile << u
     plot(u)
+
+
+    u_e = Expression('''
+      x[0]==pt_x &&
+      x[1]==pt_y &&
+      x[2]==pt_z ? sing : u_e_i
+      ''', degree=2,
+      sing = u(p),
+      u_e_i = u_D,
+      pt_x=p[0],pt_y=p[1],pt_z=p[2]
+      )
+
+    import pandas as pd
+
+    errors=compute_errors(u_e, u)
+    print(errors)
+    print(pd.DataFrame(errors,index=[0]))
 
 def demo_flux(Nx=8, Ny=8):
     "Solve test problem and compute flux"
