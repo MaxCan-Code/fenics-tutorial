@@ -115,13 +115,53 @@ def solver_objects(kappa, f, u_D, Nx, Ny,
 
     return u
 
-def solver_linalg(kappa, f, u_D, mesh,
+def solver_linalg(u_D,
+                 kappa=Constant(1),
+                 f=Constant(0),
+                 R=20,
+                 num_refines=3,
                  degree=1,
                  linear_solver='Krylov',
                  abs_tol=1E-5,
                  rel_tol=1E-3,
                  max_iter=1000):
     "Same as the solver() function but assembling and solving Ax = b"
+
+
+    def gen_ref_mesh(p, R):
+
+        # Refine mesh close to x = (0.5, 0.5)
+        # center = Point(0.5, 0.5)
+        
+        # R = 5.0  # radius of domain
+        a = R / 5   # inner radius
+
+
+        # Create mesh
+        from mshr import Sphere, generate_mesh
+        domain = Sphere(p, R)
+        mesh = generate_mesh(domain, 8 * 2)
+        # domain.set_subdomain(1, Sphere(p, a))
+
+        # https://bitbucket.org/fenics-project/dolfin/src/master/python/demo/undocumented/refinement/demo_refinement.py#lines-53
+        for i in range(num_refines):
+            # Mark cells for refinement
+            cell_markers = MeshFunction("bool", mesh, mesh.topology().dim(),False)
+            for c in cells(mesh):
+                if c.midpoint().distance(p) < a * 2 ** (-i):
+                    cell_markers[c] = True
+                else:
+                    cell_markers[c] = False
+
+            # Refine mesh
+            mesh = refine(mesh, cell_markers)
+
+        return mesh
+
+    # make mesh
+    # R = 20
+    # center = Point()
+    mesh = gen_ref_mesh(Point(), R)
 
     # Create mesh and define function space
     V = FunctionSpace(mesh, 'P', degree)
@@ -132,8 +172,8 @@ def solver_linalg(kappa, f, u_D, mesh,
     # Define variational problem
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = kappa*dot(grad(u), grad(v))*dx
-    L = f*v*dx
+    a = kappa * dot(grad(u), grad(v)) * dx
+    L = f * v * dx
 
     # Assemble linear system
     A, b = assemble_system(a, L, bc)
@@ -142,8 +182,9 @@ def solver_linalg(kappa, f, u_D, mesh,
     bc.apply(A, b)
 
     # make and apply point source
-    point=Point()
-    ps = PointSource(V, point, 1.0)
+    # https://bitbucket.org/fenics-project/dolfin/src/master/python/test/unit/fem/test_point_source.py#lines-258,259,251,257
+    points=[(Point(), 20)]
+    ps = PointSource(V, points)
     ps.apply(b)
 
     # Create linear solver and set parameters
@@ -156,6 +197,7 @@ def solver_linalg(kappa, f, u_D, mesh,
         solver = LUSolver()
 
     # Compute solution
+    # https://bitbucket.org/fenics-project/dolfin/annotate/master/python/demo/documented/stokes-iterative/demo_stokes-iterative.py.rst?at=master#demo_stokes-iterative.py.rst-217
     u = Function(V)
     solver.solve(A, u.vector(), b)
 
@@ -359,9 +401,9 @@ def compute_errors(u_e, u):
     E6 = errornorm(u_e, u, norm_type='H10', degree_rise=3)
 
     # Collect error measures in a dictionary with self-explanatory keys
-    errors = {'u - u_e': E1,
-              'u - interpolate(u_e, V)': E2,
-              'interpolate(u, Ve) - interpolate(u_e, Ve)': E3,
+    errors = {'u - $u_e$': E1,
+              'u - interpolate($u_e$, V)': E2,
+              'interpolate($u, Ve$) - interpolate($u_e, Ve$)': E3,
               'infinity norm (of dofs)': E4,
               'L2 norm': E5,
               'H10 seminorm': E6}
@@ -478,50 +520,13 @@ def demo_test():
     "Solve test problem and plot solution"
 
     p = (0,0,0)
-    u_D = Expression('''1/(4 * pi * sqrt(
+    u_D = Expression('''20/(4 * pi * sqrt(
       pow(x[0]-pt_x, 2)+
       pow(x[1]-pt_y, 2)+
       pow(x[2]-pt_z, 2)))''', degree=2,pt_x=p[0],pt_y=p[1],pt_z=p[2])
 
-    kappa = Constant(1.0)
-    f = Constant(0.0)
-
-    def gen_ref_mesh(p = Point(), a = 1.0, R = 5.0):
-
-        # Refine mesh close to x = (0.5, 0.5)
-        # p = Point(0.5, 0.5)
-        
-        # R = 5.0  # radius of domain
-        # a = 1.0   # inner radius
-
-
-        # Create mesh
-        from mshr import Sphere, generate_mesh
-        domain = Sphere(p, R)
-        mesh = generate_mesh(domain, 8 * 2)
-        # domain.set_subdomain(1, Sphere(p, a))
-
-        # https://bitbucket.org/fenics-project/dolfin/src/master/python/demo/undocumented/refinement/demo_refinement.py#lines-53
-        for i in range(3):
-            # Mark cells for refinement
-            cell_markers = MeshFunction("bool", mesh, mesh.topology().dim())
-            for c in cells(mesh):
-                if c.midpoint().distance(p) < a * 2 ** (-i):
-                    cell_markers[c] = True
-                else:
-                    cell_markers[c] = False
-
-            # Refine mesh
-            mesh = refine(mesh, cell_markers)
-
-        return mesh
-
-    # mesh = gen_ref_mesh()
-    u = solver_linalg(kappa, f, u_D, gen_ref_mesh(), 1)
-    vtkfile = File('poisson_extended/solution_test.pvd')
-    vtkfile << u
-    plot(u)
-
+    # u = solver_linalg(kappa, f, u_D, gen_ref_mesh(), 1)
+    u = solver_linalg(u_D)
 
     u_e = Expression('''
       x[0]==pt_x &&
@@ -533,11 +538,18 @@ def demo_test():
       pt_x=p[0],pt_y=p[1],pt_z=p[2]
       )
 
-    import pandas as pd
+    vtkfile = File('poisson_extended/solution_test.pvd')
+    vtkfile_diff = File('poisson_extended/solution_diff.pvd')
+    vtkfile << u
+    vtkfile_diff << project(u_e - u, u.function_space())
+    
+    plot(u)
 
-    errors=compute_errors(u_e, u)
+    # import pandas as pd
+
+    errors = compute_errors(u_e, u)
     print(errors)
-    print(pd.DataFrame(errors,index=[0]))
+    # print(pd.DataFrame(errors,index=[0]))
 
 def demo_flux(Nx=8, Ny=8):
     "Solve test problem and compute flux"
