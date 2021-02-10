@@ -502,19 +502,18 @@ def demo_test():
         # domain.set_subdomain(1, Sphere(p, a))
 
         # https://bitbucket.org/fenics-project/dolfin/src/master/python/demo/undocumented/refinement/demo_refinement.py#lines-53
+        for i in range(3):
+            # Mark cells for refinement
+            cell_markers = MeshFunction("bool", mesh, mesh.topology().dim())
+            for c in cells(mesh):
+                if c.midpoint().distance(p) < a * 2 ** (-i):
+                    cell_markers[c] = True
+                else:
+                    cell_markers[c] = False
 
-        # Mark cells for refinement
-        cell_markers = MeshFunction("bool", mesh, mesh.topology().dim(),False)
-        for c in cells(mesh):
-            if c.midpoint().distance(p) < a:
-                cell_markers[c] = True
-            else:
-                cell_markers[c] = False
+            # Refine mesh
+            mesh = refine(mesh, cell_markers)
 
-        # Refine mesh
-        mesh = refine(mesh, cell_markers)
-        # mesh = refine(mesh, cell_markers)
-        # mesh = refine(mesh, cell_markers)
         return mesh
 
     # mesh = gen_ref_mesh()
@@ -811,7 +810,8 @@ if __name__ == '__main__':
     for nr in range(len(demos)):
         print('%d: %s (%s)' % (nr, demos[nr].__doc__, demos[nr].__name__))
     print('')
-    nr = eval(input('Pick a demo: '))
+    # nr = eval(input('Pick a demo: '))
+    nr = 0
 
     # Run demo
     demos[nr]()
