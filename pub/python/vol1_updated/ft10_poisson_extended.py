@@ -115,20 +115,21 @@ def solver_objects(kappa, f, u_D, Nx, Ny,
 
     return u
 
-def solver_linalg(u_D,
-                 kappa=Constant(1),
-                 f=Constant(0),
-                 R=20,
-                 num_refines=3,
-                 degree=1,
-                 linear_solver='Krylov',
-                 abs_tol=1E-5,
-                 rel_tol=1E-3,
-                 max_iter=1000):
+def solver_linalg(kappa=Constant(1),
+                  f=Constant(0),
+                  u_D=Constant(0),
+                  num_refines=3,
+                  degree=1,
+                  mesh=None,
+                  mat=True,
+                  linear_solver='Krylov',
+                  abs_tol=1E-5,
+                  rel_tol=1E-3,
+                  max_iter=1000):
     "Same as the solver() function but assembling and solving Ax = b"
 
 
-    def gen_ref_mesh(p, R):
+    def gen_ref_mesh(p, R, num_refs):
 
         # Refine mesh close to x = (0.5, 0.5)
         # center = Point(0.5, 0.5)
@@ -158,10 +159,44 @@ def solver_linalg(u_D,
 
         return mesh
 
-    # make mesh
-    # R = 20
+
+    def coeff(mesh, a=2, p=Point(2, 0, 2)):
+        "Define subdomain markers"
+        markers = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
+
+        for c in cells(mesh):
+            # object radius a = 2.0 cm
+            # d = 7 cm
+            if c.midpoint().distance(p) < a:
+                markers[c] = 0
+            else:
+                markers[c] = 1
+
+        # Define magnetic permeability
+        class Permeability(UserExpression):
+            def __init__(self, markers, **kwargs):
+                super().__init__(**kwargs)
+                self.markers = markers
+            def eval_cell(self, values, x, cell):
+                # eps_e = 80.1, eps_i = 2.25,
+                if self.markers[cell.index] == 0:
+                    values[0] = 2.25 / 80.1 # eps_i = 2.25
+                elif self.markers[cell.index] == 1:
+                    values[0] = 1         # eps_e = 80.1
+                else:
+                    values[0] = 1
+
+        kappa = Permeability(markers, degree=1)
+
+        return kappa
+
+    # used supplied mesh else gen
+    R = 20
     # center = Point()
-    mesh = gen_ref_mesh(Point(), R)
+    if not mesh: mesh = gen_ref_mesh(Point(), R, num_refines)
+
+    # mark mesh
+    if mat: kappa = coeff(mesh)
 
     # Create mesh and define function space
     V = FunctionSpace(mesh, 'P', degree)
@@ -183,6 +218,8 @@ def solver_linalg(u_D,
 
     # make and apply point source
     # https://bitbucket.org/fenics-project/dolfin/src/master/python/test/unit/fem/test_point_source.py#lines-258,259,251,257
+    
+    # q = 20 mV / cm
     points=[(Point(), 20)]
     ps = PointSource(V, points)
     ps.apply(b)
@@ -420,17 +457,19 @@ def compute_convergence_rates(u_e, f, u_D, kappa,
     # Iterate over degrees and mesh refinement levels
     degrees = list(range(1, max_degree + 1))
     for degree in degrees:
-        n = 8  # coarsest mesh division
+        n = 1  # coarsest mesh refinement
         h[degree] = []
         E[degree] = []
         for i in range(num_levels):
             h[degree].append(1.0 / n)
-            u = solver(kappa, f, u_D, n, n, degree, linear_solver='direct')
+            # u = solver(kappa, f, u_D, n, n, degree, linear_solver='direct')
+            u = solver_linalg(u_D, n, degree)
+            # n = num_refines
             errors = compute_errors(u_e, u)
             E[degree].append(errors)
             print('2 x (%d x %d) P%d mesh, %d unknowns, E1 = %g' %
-              (n, n, degree, u.function_space().dim(), errors['u - u_e']))
-            n *= 2
+              (n, n, degree, u.function_space().dim(), errors['u - $u_e$']))
+            n += 1
 
     # Compute convergence rates
     from math import log as ln  # log is a fenics name too
@@ -519,37 +558,48 @@ def test_normalize_solution():
 def demo_test():
     "Solve test problem and plot solution"
 
-    p = (0,0,0)
-    u_D = Expression('''20/(4 * pi * sqrt(
-      pow(x[0]-pt_x, 2)+
-      pow(x[1]-pt_y, 2)+
-      pow(x[2]-pt_z, 2)))''', degree=2,pt_x=p[0],pt_y=p[1],pt_z=p[2])
+    p = (0, 0, 0)
+    q = 20
+    u_D = Expression('''
+        q/(4 * pi * sqrt(
+        pow(x[0]-p_x, 2)+
+        pow(x[1]-p_y, 2)+
+        pow(x[2]-p_z, 2)))
+        ''', degree=2,
+        p_x=p[0],
+        p_y=p[1],
+        p_z=p[2],
+        q=q)
 
     # u = solver_linalg(kappa, f, u_D, gen_ref_mesh(), 1)
     u = solver_linalg(u_D)
+    u_empty = solver_linalg(u_D, mat=False, mesh=u.function_space().mesh())
 
+    diff_u = u - u_empty
+    plot(diff_u)
+
+    # p = (0, 0, 0)
     u_e = Expression('''
       x[0]==pt_x &&
       x[1]==pt_y &&
       x[2]==pt_z ? sing : u_e_i
       ''', degree=2,
-      sing = u(p),
-      u_e_i = u_D,
-      pt_x=p[0],pt_y=p[1],pt_z=p[2]
+      sing = u(p), u_e_i = u_D,
+      pt_x=p[0],
+      pt_y=p[1],
+      pt_z=p[2]
       )
 
-    vtkfile = File('poisson_extended/solution_test.pvd')
+    # vtkfile = File('poisson_extended/solution_test.pvd')
+
+    # vtkfile_mat = File('poisson_extended/solution_mat.pvd')
+    # vtkfile_empty = File('poisson_extended/solution_empty.pvd')
     vtkfile_diff = File('poisson_extended/solution_diff.pvd')
-    vtkfile << u
-    vtkfile_diff << project(u_e - u, u.function_space())
+    vtkfile_err = File('poisson_extended/solution_err.pvd')
     
-    plot(u)
-
-    # import pandas as pd
-
-    errors = compute_errors(u_e, u)
-    print(errors)
-    # print(pd.DataFrame(errors,index=[0]))
+    vtkfile_diff << project(diff_u, u.function_space())
+    vtkfile_err << project(u_e - u_empty, u.function_space())
+    # https://fenicsproject.discourse.group/t/how-to-plot-the-divergence-of-a-solution-object/1412/3
 
 def demo_flux(Nx=8, Ny=8):
     "Solve test problem and compute flux"
@@ -586,11 +636,30 @@ def demo_convergence_rates():
     "Compute convergence rates in various norms for P1, P2, P3"
 
     # Define exact solution and coefficients
-    omega = 1.0
-    u_e = Expression('sin(omega*pi*x[0])*sin(omega*pi*x[1])',
-                     degree=6, omega=omega)
-    f = 2*omega**2*pi**2*u_e
-    u_D = Constant(0)
+    p = (0, 0, 0)
+    q = 20
+    u_D = Expression('''
+        q/(4 * pi * sqrt(
+        pow(x[0]-p_x, 2)+
+        pow(x[1]-p_y, 2)+
+        pow(x[2]-p_z, 2)))
+        ''', degree=2,
+        p_x = p[0],
+        p_y = p[1],
+        p_z = p[2], q = q )
+
+    u = solver_linalg(u_D)
+    u_e = Expression('''
+      x[0]==pt_x &&
+      x[1]==pt_y &&
+      x[2]==pt_z ? sing : u_e_i
+      ''', degree=2,
+      sing = u(p), u_e_i = u_D,
+      pt_x = p[0],
+      pt_y = p[1],
+      pt_z = p[2] )
+
+    f = Constant(0)
     kappa = Constant(1)
 
     # Compute and print convergence rates
@@ -823,7 +892,7 @@ if __name__ == '__main__':
         print('%d: %s (%s)' % (nr, demos[nr].__doc__, demos[nr].__name__))
     print('')
     # nr = eval(input('Pick a demo: '))
-    nr = 0
+    nr = 2
 
     # Run demo
     demos[nr]()
