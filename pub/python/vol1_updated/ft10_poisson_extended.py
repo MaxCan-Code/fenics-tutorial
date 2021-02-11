@@ -669,6 +669,14 @@ def demo_convergence_rates():
         for degree in degrees:
             print('P%d: %s' % (degree, str(rates[degree][error_type])[1:-1]))
 
+    import pandas as pd
+
+    df = pd.DataFrame(rates).rename(columns=lambda x: f'P{str(x)}')
+
+    [df.loc[label].apply(pd.Series).T.plot(title=label) for label in (
+        "u - $u_e$",  'infinity norm (of dofs)', "L2 norm")]
+
+
 def demo_structured_mesh():
     "Use structured mesh data to create plots with Matplotlib"
 
