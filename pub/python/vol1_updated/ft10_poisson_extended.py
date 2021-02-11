@@ -160,7 +160,7 @@ def solver_linalg(kappa=Constant(1),
         return mesh
 
 
-    def coeff(mesh, a=2, p=Point(2, 0, 2)):
+    def coeff(mesh, a=2, p=Point(8, 0, 0)):
         "Define subdomain markers"
         markers = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
 
@@ -216,11 +216,25 @@ def solver_linalg(kappa=Constant(1),
     # Apply boundary conditions
     bc.apply(A, b)
 
+
     # make and apply point source
-    # https://bitbucket.org/fenics-project/dolfin/src/master/python/test/unit/fem/test_point_source.py#lines-258,259,251,257
-    
+    # make grid
+    grid = (6, 6, 6)  # (side, fwd, down)
+    mesh_coords = UnitCubeMesh(*[a - 1 for a in grid]).coordinates()
+
+    # scale + recenter, 4 cm
+    pt_coords = mesh_coords * 4 - (4 / 2)
+
     # q = 20 mV / cm
-    points=[(Point(), 20)]
+    num_src = 6 ** 3
+    q = 20 / num_src
+
+    points = [
+        (Point(a), b_)
+        for a, b_ in zip(pt_coords, (q,) * num_src)
+    ]
+
+    # https://bitbucket.org/fenics-project/dolfin/src/master/python/test/unit/fem/test_point_source.py#lines-258,259,251,257
     ps = PointSource(V, points)
     ps.apply(b)
 
@@ -593,12 +607,13 @@ def demo_test():
     # vtkfile = File('poisson_extended/solution_test.pvd')
 
     # vtkfile_mat = File('poisson_extended/solution_mat.pvd')
-    # vtkfile_empty = File('poisson_extended/solution_empty.pvd')
+    vtkfile_empty = File('poisson_extended/solution_empty.pvd')
     vtkfile_diff = File('poisson_extended/solution_diff.pvd')
-    vtkfile_err = File('poisson_extended/solution_err.pvd')
+    # vtkfile_err = File('poisson_extended/solution_err.pvd')
     
+    vtkfile_empty << u_empty
     vtkfile_diff << project(diff_u, u.function_space())
-    vtkfile_err << project(u_e - u_empty, u.function_space())
+    # vtkfile_err << project(u_e - u_empty, u.function_space())
     # https://fenicsproject.discourse.group/t/how-to-plot-the-divergence-of-a-solution-object/1412/3
 
 def demo_flux(Nx=8, Ny=8):
@@ -889,18 +904,19 @@ if __name__ == '__main__':
 
     # List of demos
     demos = (demo_test,
-             demo_flux,
+             # demo_flux,
              demo_convergence_rates,
-             demo_structured_mesh,
-             demo_bcs,
-             demo_solvers)
+             # demo_structured_mesh,
+             # demo_bcs,
+             # demo_solvers
+             )
 
     # Pick a demo
     for nr in range(len(demos)):
         print('%d: %s (%s)' % (nr, demos[nr].__doc__, demos[nr].__name__))
     print('')
     # nr = eval(input('Pick a demo: '))
-    nr = 2
+    nr = 0
 
     # Run demo
     demos[nr]()
