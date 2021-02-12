@@ -115,13 +115,14 @@ def solver_objects(kappa, f, u_D, Nx, Ny,
 
     return u
 
-def solver_linalg(kappa=Constant(1),
-                  f=Constant(0),
-                  u_D=Constant(0),
+def solver_linalg(u_D=Constant(0),
                   num_refines=3,
                   degree=1,
+                  kappa=Constant(1),
+                  f=Constant(0),
                   mesh=None,
                   mat=True,
+                  converg=False,
                   linear_solver='Krylov',
                   abs_tol=1E-5,
                   rel_tol=1E-3,
@@ -160,7 +161,7 @@ def solver_linalg(kappa=Constant(1),
         return mesh
 
 
-    def coeff(mesh, a=2, p=Point(8, 0, 0)):
+    def coeff(mesh, a=2, p=Point(7, 0, 0)):
         "Define subdomain markers"
         markers = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
 
@@ -191,7 +192,7 @@ def solver_linalg(kappa=Constant(1),
         return kappa
 
     # used supplied mesh else gen
-    R = 20
+    R = 30
     # center = Point()
     if not mesh: mesh = gen_ref_mesh(Point(), R, num_refines)
 
@@ -235,6 +236,9 @@ def solver_linalg(kappa=Constant(1),
     ]
 
     # https://bitbucket.org/fenics-project/dolfin/src/master/python/test/unit/fem/test_point_source.py#lines-258,259,251,257
+
+    if converg: points=[(Point(), 20)]
+    
     ps = PointSource(V, points)
     ps.apply(b)
 
@@ -471,19 +475,18 @@ def compute_convergence_rates(u_e, f, u_D, kappa,
     # Iterate over degrees and mesh refinement levels
     degrees = list(range(1, max_degree + 1))
     for degree in degrees:
-        n = 1  # coarsest mesh refinement
+        n = 8  # coarsest mesh division
         h[degree] = []
         E[degree] = []
         for i in range(num_levels):
-            h[degree].append(1.0 / n)
             # u = solver(kappa, f, u_D, n, n, degree, linear_solver='direct')
-            u = solver_linalg(u_D, n, degree)
-            # n = num_refines
+            u = solver_linalg(u_D, i+1, degree,converg=True)
+            # i = num_refines
+            h[degree].append(1 / u.function_space().mesh().num_cells())
             errors = compute_errors(u_e, u)
             E[degree].append(errors)
-            print('2 x (%d x %d) P%d mesh, %d unknowns, E1 = %g' %
-              (n, n, degree, u.function_space().dim(), errors['u - $u_e$']))
-            n += 1
+            print(f'2 x ({n} x {n}) P{degree} mesh, {u.function_space().dim()} unknowns, E1 = {errors["u - $u_e$"]}')
+            n *= 2
 
     # Compute convergence rates
     from math import log as ln  # log is a fenics name too
@@ -586,10 +589,14 @@ def demo_test():
         q=q)
 
     # u = solver_linalg(kappa, f, u_D, gen_ref_mesh(), 1)
-    u = solver_linalg(u_D)
-    u_empty = solver_linalg(u_D, mat=False, mesh=u.function_space().mesh())
+    # u = solver_linalg(u_D, 5, converg=True)
+    u = solver_linalg(u_D,converg=True)
 
-    diff_u = u - u_empty
+    u_mat = solver_linalg(u_D)
+    u_empty = solver_linalg(u_D, mat=False, mesh=u_mat.function_space().mesh())
+
+
+    diff_u = u_mat - u_empty
     plot(diff_u)
 
     # p = (0, 0, 0)
@@ -609,11 +616,11 @@ def demo_test():
     # vtkfile_mat = File('poisson_extended/solution_mat.pvd')
     vtkfile_empty = File('poisson_extended/solution_empty.pvd')
     vtkfile_diff = File('poisson_extended/solution_diff.pvd')
-    # vtkfile_err = File('poisson_extended/solution_err.pvd')
+    vtkfile_err = File('poisson_extended/solution_err.pvd')
     
     vtkfile_empty << u_empty
-    vtkfile_diff << project(diff_u, u.function_space())
-    # vtkfile_err << project(u_e - u_empty, u.function_space())
+    vtkfile_diff << project(diff_u, u_mat.function_space())
+    vtkfile_err << project(u_e - u, u.function_space())
     # https://fenicsproject.discourse.group/t/how-to-plot-the-divergence-of-a-solution-object/1412/3
 
 def demo_flux(Nx=8, Ny=8):
@@ -663,7 +670,9 @@ def demo_convergence_rates():
         p_y = p[1],
         p_z = p[2], q = q )
 
-    u = solver_linalg(u_D)
+    u = solver_linalg(u_D, 5, 4, converg=True)
+
+    # u_e(p)=u(p)
     u_e = Expression('''
       x[0]==pt_x &&
       x[1]==pt_y &&
@@ -682,7 +691,7 @@ def demo_convergence_rates():
     for error_type in etypes:
         print('\n' + error_type)
         for degree in degrees:
-            print('P%d: %s' % (degree, str(rates[degree][error_type])[1:-1]))
+            print(f'P{degree}: {str(rates[degree][error_type])[1:-1]}')
 
     import pandas as pd
 
@@ -913,10 +922,10 @@ if __name__ == '__main__':
 
     # Pick a demo
     for nr in range(len(demos)):
-        print('%d: %s (%s)' % (nr, demos[nr].__doc__, demos[nr].__name__))
+        print(f'{nr}: {demos[nr].__doc__} ({demos[nr].__name__})')
     print('')
-    # nr = eval(input('Pick a demo: '))
-    nr = 0
+    nr = eval(input('Pick a demo: '))
+    # nr = 1
 
     # Run demo
     demos[nr]()
