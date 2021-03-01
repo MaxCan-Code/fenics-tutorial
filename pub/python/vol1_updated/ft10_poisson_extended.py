@@ -118,7 +118,7 @@ def solver_objects(kappa, f, u_D, Nx, Ny,
 def solver_linalg(u_D=Constant(0),
                   num_refines=3,
                   degree=1,
-                  kappa=Constant(1),
+                  κ=Constant(1),
                   f=Constant(0),
                   mesh=None,
                   mat=True,
@@ -130,18 +130,18 @@ def solver_linalg(u_D=Constant(0),
     "Same as the solver() function but assembling and solving Ax = b"
 
 
-    def gen_ref_mesh(p, R, num_refs):
-
-        # Refine mesh close to x = (0.5, 0.5)
-        # center = Point(0.5, 0.5)
-        
-        # R = 5.0  # radius of domain
-        a = R / 5   # inner radius
-
+    def gen_ref_mesh(charge_locs, R, num_refs):
+        '''
+        Refine mesh close to plane and object
+        R   radius of domain
+        '''
+        a = 2   # inner radius
+        side, fwd = charge_locs  # dims = (4, 10)
+        boarder = 2
 
         # Create mesh
         from mshr import Sphere, generate_mesh
-        domain = Sphere(p, R)
+        domain = Sphere(Point(), R)
         mesh = generate_mesh(domain, 8 * 2)
         # domain.set_subdomain(1, Sphere(p, a))
 
@@ -150,10 +150,10 @@ def solver_linalg(u_D=Constant(0),
             # Mark cells for refinement
             cell_markers = MeshFunction("bool", mesh, mesh.topology().dim(),False)
             for c in cells(mesh):
-                if c.midpoint().distance(p) < a * 2 ** (-i):
+               if abs(c.midpoint().x()) <= side + boarder and abs(c.midpoint().y()) <= fwd + boarder and abs(c.midpoint().z()) <= 1:
                     cell_markers[c] = True
-                else:
-                    cell_markers[c] = False
+               elif c.midpoint().distance(Point(0, 0, 7)) < a + boarder:
+                    cell_markers[c] = True
 
             # Refine mesh
             mesh = refine(mesh, cell_markers)
@@ -161,7 +161,7 @@ def solver_linalg(u_D=Constant(0),
         return mesh
 
 
-    def coeff(mesh, a=2, p=Point(7, 0, 0)):
+    def coeff(mesh, a=2, p=Point(0, 0, 7)):
         "Define subdomain markers"
         markers = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
 
@@ -169,8 +169,6 @@ def solver_linalg(u_D=Constant(0),
             # object radius a = 2.0 cm
             # d = 7 cm
             if c.midpoint().distance(p) < a:
-                markers[c] = 0
-            else:
                 markers[c] = 1
 
         # Define magnetic permeability
@@ -180,24 +178,22 @@ def solver_linalg(u_D=Constant(0),
                 self.markers = markers
             def eval_cell(self, values, x, cell):
                 # eps_e = 80.1, eps_i = 2.25,
-                if self.markers[cell.index] == 0:
+                if self.markers[cell.index] == 1:
                     values[0] = 2.25 / 80.1 # eps_i = 2.25
-                elif self.markers[cell.index] == 1:
-                    values[0] = 1         # eps_e = 80.1
                 else:
-                    values[0] = 1
+                    values[0] = 1           # eps_e = 80.1
 
-        kappa = Permeability(markers, degree=1)
+        κ = Permeability(markers, degree=1)
 
-        return kappa
+        return κ
 
     # used supplied mesh else gen
     R = 30
-    # center = Point()
-    if not mesh: mesh = gen_ref_mesh(Point(), R, num_refines)
+    charge_locs = (4, 10)
+    if not mesh: mesh = gen_ref_mesh(charge_locs, R, num_refines)
 
     # mark mesh
-    if mat: kappa = coeff(mesh)
+    if mat: κ = coeff(mesh)
 
     # Create mesh and define function space
     V = FunctionSpace(mesh, 'P', degree)
@@ -208,7 +204,7 @@ def solver_linalg(u_D=Constant(0),
     # Define variational problem
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = kappa * dot(grad(u), grad(v)) * dx
+    a = κ * dot(grad(u), grad(v)) * dx
     L = f * v * dx
 
     # Assemble linear system
@@ -219,26 +215,27 @@ def solver_linalg(u_D=Constant(0),
 
 
     # make and apply point source
-    # make grid
-    grid = (6, 6, 6)  # (side, fwd, down)
-    mesh_coords = UnitCubeMesh(*[a - 1 for a in grid]).coordinates()
-
-    # scale + recenter, 4 cm
-    pt_coords = mesh_coords * 4 - (4 / 2)
+    # make plane charge
+    side, fwd = charge_locs # (4, 10)
+    corner = Point(-side / 2, -fwd / 2)
+    mesh_coords = RectangleMesh(
+        corner, Point() - corner, side - 1, fwd - 1).coordinates()
 
     # q = 20 mV / cm
-    num_src = 6 ** 3
+    num_src = side * fwd
     q = 20 / num_src
+    q_tail = 20 / side
+    q_l = (-q_tail,) * side + (q,) * (num_src - side)
 
     points = [
         (Point(a), b_)
-        for a, b_ in zip(pt_coords, (q,) * num_src)
+        for a, b_ in zip(mesh_coords, q_l)
     ]
 
     # https://bitbucket.org/fenics-project/dolfin/src/master/python/test/unit/fem/test_point_source.py#lines-258,259,251,257
 
     if converg: points=[(Point(), 20)]
-    
+
     ps = PointSource(V, points)
     ps.apply(b)
 
@@ -617,7 +614,7 @@ def demo_test():
     vtkfile_empty = File('poisson_extended/solution_empty.pvd')
     vtkfile_diff = File('poisson_extended/solution_diff.pvd')
     vtkfile_err = File('poisson_extended/solution_err.pvd')
-    
+
     vtkfile_empty << u_empty
     vtkfile_diff << project(diff_u, u_mat.function_space())
     vtkfile_err << project(u_e - u, u.function_space())
@@ -689,7 +686,7 @@ def demo_convergence_rates():
     # Compute and print convergence rates
     etypes, degrees, rates = compute_convergence_rates(u_e, f, u_D, kappa)
     for error_type in etypes:
-        print('\n' + error_type)
+        print('\n', f'{error_type}')
         for degree in degrees:
             print(f'P{degree}: {str(rates[degree][error_type])[1:-1]}')
 
