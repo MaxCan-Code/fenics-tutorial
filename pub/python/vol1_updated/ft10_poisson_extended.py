@@ -115,78 +115,93 @@ def solver_objects(kappa, f, u_D, Nx, Ny,
 
     return u
 
-def solver_linalg(u_D=Constant(0),
-                  num_refines=3,
-                  degree=1,
-                  κ=Constant(1),
-                  f=Constant(0),
-                  mesh=None,
-                  mat=True,
-                  converg=False,
-                  linear_solver='Krylov',
-                  abs_tol=1E-5,
-                  rel_tol=1E-3,
-                  max_iter=1000):
-    "Same as the solver() function but assembling and solving Ax = b"
-
+def solver_linalg(
+    u_D=Constant(0),
+    num_refines=3,
+    degree=1,
+    κ=Constant(1),
+    f=Constant(0),
+    mesh=None,
+    mat=True,
+    converg=False,
+    linear_solver='Krylov',
+    abs_tol=1e-5,
+    rel_tol=1e-3,
+    max_iter=1000
+):
+    'Same as the solver() function but assembling and solving Ax = b'
 
     def gen_ref_mesh(charge_locs, R, num_refs):
         '''
         Refine mesh close to plane and object
         R   radius of domain
         '''
-        a = 2   # inner radius
+        a = 2  # inner radius
         side, fwd = charge_locs  # dims = (4, 10)
         boarder = 2
 
         # Create mesh
         from mshr import Sphere, generate_mesh
+
         domain = Sphere(Point(), R)
-        mesh = generate_mesh(domain, 8 * 2)
+        mesh = generate_mesh(domain, 10 * 2)
         # domain.set_subdomain(1, Sphere(p, a))
 
         # https://bitbucket.org/fenics-project/dolfin/src/master/python/demo/undocumented/refinement/demo_refinement.py#lines-53
         for i in range(num_refines):
             # Mark cells for refinement
-            cell_markers = MeshFunction("bool", mesh, mesh.topology().dim(),False)
-            for c in cells(mesh):
-               if abs(c.midpoint().x()) <= side + boarder and abs(c.midpoint().y()) <= fwd + boarder and abs(c.midpoint().z()) <= 1:
-                    cell_markers[c] = True
-               elif c.midpoint().distance(Point(0, 0, 7)) < a + boarder:
-                    cell_markers[c] = True
+            cell_markers = MeshFunction('bool', mesh, mesh.topology().dim(), False)
+
+            # https://bitbucket.org/fenics-project/dolfin/src/master/python/test/unit/mesh/test_sub_domain.py#lines-136:143
+            charge_plane = CompiledSubDomain(
+                f'fabs(x[0]) <= { side + boarder } and'
+                f'fabs(x[1]) <= { fwd + boarder } and'
+                f'fabs(x[2]) <= { boarder * 2}'
+            )
+
+            # object radius a = 2.0 cm
+            # d = 7 cm
+            mat_obj = CompiledSubDomain(f'pow(x[0], 2) + pow(x[1], 2) + pow(x[2] - 7, 2) <= { (a + boarder) ** 2 }')
+
+            charge_plane.mark(cell_markers, True)
+            mat_obj.mark(cell_markers, True)
 
             # Refine mesh
             mesh = refine(mesh, cell_markers)
 
         return mesh
 
-
     def coeff(mesh, a=2, p=Point(0, 0, 7)):
-        "Define subdomain markers"
+        'Define subdomain markers'
         markers = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
 
-        for c in cells(mesh):
-            # object radius a = 2.0 cm
-            # d = 7 cm
-            if c.midpoint().distance(p) < a:
-                markers[c] = 1
+        # object radius a = 2.0 cm
+        # d = 7 cm
+        mat_obj = CompiledSubDomain(
+            f'fabs(x[0]) <= { a ** 2 } and'
+            f'fabs(x[1]) <= { a ** 2 } and'
+            f'fabs(x[2] - 7) <= { a ** 2}'
+        )
+        # mat_obj = CompiledSubDomain(f'pow(x[0], 2) + pow(x[1], 2) + pow(x[2] - 7, 2) <= { a ** 2 }')
+
+        mat_obj.mark(markers, 1)
 
         # Define magnetic permeability
         class Permeability(UserExpression):
             def __init__(self, markers, **kwargs):
                 super().__init__(**kwargs)
                 self.markers = markers
+
             def eval_cell(self, values, x, cell):
                 # eps_e = 80.1, eps_i = 2.25,
                 if self.markers[cell.index] == 1:
-                    values[0] = 2.25 / 80.1 # eps_i = 2.25
+                    values[0] = 2.25 / 80.1  # eps_i = 2.25
                 else:
-                    values[0] = 1           # eps_e = 80.1
+                    values[0] = 1            # eps_e = 80.1
 
         κ = Permeability(markers, degree=1)
 
         return κ
-
     # used supplied mesh else gen
     R = 30
     charge_locs = (4, 10)
