@@ -154,9 +154,9 @@ def solver_linalg(
 
             # https://bitbucket.org/fenics-project/dolfin/src/master/python/test/unit/mesh/test_sub_domain.py#lines-136:143
             charge_plane = CompiledSubDomain(
-                f'fabs(x[0]) <= { side + boarder } and'
-                f'fabs(x[1]) <= { fwd + boarder } and'
-                f'fabs(x[2]) <= { boarder * 2}'
+                f'abs(x[0]) <= { side + boarder } and '
+                f'abs(x[1]) <= { fwd + boarder } and '
+                f'abs(x[2]) <= { boarder * 2}'
             )
 
             # object radius a = 2.0 cm
@@ -178,13 +178,15 @@ def solver_linalg(
         # object radius a = 2.0 cm
         # d = 7 cm
         mat_obj = CompiledSubDomain(
-            f'fabs(x[0]) <= { a ** 2 } and'
-            f'fabs(x[1]) <= { a ** 2 } and'
-            f'fabs(x[2] - 7) <= { a ** 2}'
+            f'abs(x[0]) <= { a } and '
+            f'abs(x[1]) <= { a } and '
+            f'abs(x[2] - 7) <= { a }'
         )
         # mat_obj = CompiledSubDomain(f'pow(x[0], 2) + pow(x[1], 2) + pow(x[2] - 7, 2) <= { a ** 2 }')
+        # mat_obj = CompiledSubDomain(f'a * pow(x[0], 2) + pow(x[1], 2) + pow(x[2] - 7, 2) <= { a ** 2 }')
 
         mat_obj.mark(markers, 1)
+        # cube.mark(markers, 1)
 
         # Define magnetic permeability
         class Permeability(UserExpression):
@@ -224,10 +226,6 @@ def solver_linalg(
 
     # Assemble linear system
     A, b = assemble_system(a, L, bc)
-
-    # Apply boundary conditions
-    bc.apply(A, b)
-
 
     # make and apply point source
     # make plane charge
@@ -485,13 +483,13 @@ def compute_convergence_rates(u_e, f, u_D, kappa,
     E = {}  # error measure(s): E[degree][level][error_type]
 
     # Iterate over degrees and mesh refinement levels
-    degrees = list(range(1, max_degree + 1))
-    for degree in degrees:
+    for degree in range(1, max_degree + 1):
         n = 8  # coarsest mesh division
         h[degree] = []
         E[degree] = []
         for i in range(num_levels):
             # u = solver(kappa, f, u_D, n, n, degree, linear_solver='direct')
+            # u = solver_linalg(u_D, i+1, degree,converg=True)
             u = solver_linalg(u_D, i+1, degree,converg=True)
             # i = num_refines
             h[degree].append(1 / u.function_space().mesh().num_cells())
@@ -602,14 +600,15 @@ def demo_test():
 
     # u = solver_linalg(kappa, f, u_D, gen_ref_mesh(), 1)
     # u = solver_linalg(u_D, 5, converg=True)
-    u = solver_linalg(u_D,converg=True)
+    u = solver_linalg(converg=True)
 
     u_mat = solver_linalg(u_D)
     u_empty = solver_linalg(u_D, mat=False, mesh=u_mat.function_space().mesh())
 
 
     diff_u = u_mat - u_empty
-    plot(diff_u)
+    import matplotlib.pyplot as plt
+    plt.colorbar(plot(diff_u))
 
     # p = (0, 0, 0)
     u_e = Expression('''
