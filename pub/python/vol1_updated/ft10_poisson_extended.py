@@ -16,7 +16,7 @@ This program illustrates a number of different topics:
 - How to represent solutions as structured fields
 """
 
-
+from __future__ import print_function
 
 from fenics import *
 from boxfield import *
@@ -483,7 +483,8 @@ def compute_convergence_rates(u_e, f, u_D, kappa,
     E = {}  # error measure(s): E[degree][level][error_type]
 
     # Iterate over degrees and mesh refinement levels
-    for degree in range(1, max_degree + 1):
+    degrees = range(1, max_degree + 1)
+    for degree in degrees:
         n = 8  # coarsest mesh division
         h[degree] = []
         E[degree] = []
@@ -715,7 +716,7 @@ def demo_convergence_rates():
 def demo_structured_mesh():
     "Use structured mesh data to create plots with Matplotlib"
 
-    raise NotImplementedError("This function is outdated beyond repair.")
+    #raise NotImplementedError("This function is outdated beyond repair.")
 
     # Define exact solution (Mexican hat) and coefficients
     from sympy import exp, sin, pi
@@ -798,7 +799,7 @@ def demo_structured_mesh():
     flux_u = flux(u, kappa)
     flux_u_x, flux_u_y = flux_u.split(deepcopy=True)
     flux2_x = flux_u_x if flux_u_x.ufl_element().degree() == 1 \
-              else interpolate(flux_u_x,
+              else interpolate(flux_x,
                    FunctionSpace(u.function_space().mesh(), 'P', 1))
     flux_u_x_box = FEniCSBoxField(flux_u_x, (nx,ny))
     x, flux_u_val, y_fixed, snapped = \
@@ -942,5 +943,9 @@ if __name__ == '__main__':
     demos[nr]()
 
     # Hold plot
-    # import matplotlib.pyplot as plt
-    # plt.savefig("figure.png")
+    import matplotlib.pyplot as plt
+    plt.savefig("figure.png")
+
+    # Hold plot
+    plt.show()
+
